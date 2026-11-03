@@ -1,0 +1,392 @@
+name: Manage Organization Members
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # Runs daily at 00:00 UTC
+  workflow_dispatch:
+    inputs:
+      what_if:
+        description: "Run without changing organization membership"
+        type: boolean
+        required: false
+        default: true
+  push:
+    branches:
+      - main
+    paths:
+      - "org-membership/members.json"
+
+concurrency:
+  group: org-membership-state
+  cancel-in-progress: false
+
+permissions: read-all
+
+jobs:
+  manage-members:
+    runs-on: ubuntu-latest
+
+    env:
+      WHAT_IF: ${{ github.event_name == 'workflow_dispatch' && inputs.what_if == true }}
+
+    steps:
+      - name: Create App token
+        id: create_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.ORG_MEMBER_TEAM_ADMIN_ID }}
+          private-key: ${{ secrets.ORG_MEMBER_TEAM_ADMIN_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Set up GitHub CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh auth login --with-token <<< "${{ steps.create_token.outputs.token }}"
+
+      - name: Checkout Repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          token: ${{ steps.create_token.outputs.token }}
+
+      - name: Build active JIT admin list
+        id: active_jit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          active_jit_admins_file="$RUNNER_TEMP/active-jit-admins.txt"
+          : > "$active_jit_admins_file"
+
+          parse_request() {
+            local file="$1"
+
+            ruby -ryaml -rjson -e '
+              file = ARGV.fetch(0)
+              data = YAML.safe_load_file(file, aliases: false)
+
+              unless data.is_a?(Hash)
+                warn "::error file=#{file}::Request file must contain a YAML object."
+                exit 1
+              end
+
+              username = data["username"].to_s.strip
+
+              begin
+                duration = Integer(data["duration"])
+              rescue
+                warn "::error file=#{file}::duration must be a whole number of hours."
+                exit 1
+              end
+
+              if username.empty? || username == "githubUserName"
+                warn "::error file=#{file}::username is missing or still set to the template value."
+                exit 1
+              end
+
+              if duration <= 0
+                warn "::error file=#{file}::duration must be greater than 0."
+                exit 1
+              end
+
+              puts JSON.generate({
+                "username" => username,
+                "duration" => duration
+              })
+            ' "$file"
+          }
+
+          if [ -d "./org-admin" ]; then
+            now_ts="$(date +%s)"
+
+            while IFS= read -r -d '' file; do
+              request_json="$(parse_request "$file")"
+              username="$(jq -r '.username' <<< "$request_json")"
+              duration="$(jq -r '.duration' <<< "$request_json")"
+
+              request_start_ts="$(git log --reverse --format=%ct -- "$file" | head -n 1)"
+
+              if [ -z "$request_start_ts" ]; then
+                echo "::warning file=$file::Could not determine request file commit timestamp."
+                continue
+              fi
+
+              expiration_ts=$(( request_start_ts + duration * 3600 ))
+
+              if [ "$now_ts" -lt "$expiration_ts" ]; then
+                echo "$username" >> "$active_jit_admins_file"
+              fi
+            done < <(find ./org-admin -type f \( -name "*.yml" -o -name "*.yaml" \) -print0)
+          fi
+
+          sort -u "$active_jit_admins_file" -o "$active_jit_admins_file"
+
+          echo "Active JIT admins:"
+          cat "$active_jit_admins_file" || true
+
+          echo "active_jit_admins_file=$active_jit_admins_file" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure active and nonremovable organization memberships
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ORG="${{ github.repository_owner }}"
+          MEMBERS_FILE="org-membership/members.json"
+          ACTIVE_JIT_ADMINS_FILE="${{ steps.active_jit.outputs.active_jit_admins_file }}"
+          ALLOWED_DOMAINS=("ssc-spc.gc.ca" "ssc.gc.ca")
+
+          if [ "$WHAT_IF" = "true" ]; then
+            echo "WHAT_IF mode is enabled."
+            echo "Active/nonremovable users will be evaluated, but not invited or role-updated."
+          fi
+
+          if [ ! -f "$MEMBERS_FILE" ]; then
+            echo "::error::Members file not found: $MEMBERS_FILE"
+            exit 1
+          fi
+
+          mapfile -t users_to_ensure < <(
+            jq -r '
+              .members[]
+              | select(.status == "active" or .status == "nonremovable")
+              | .username
+            ' "$MEMBERS_FILE"
+          )
+
+          if [ "${#users_to_ensure[@]}" -eq 0 ]; then
+            echo "No active or nonremovable users found to ensure."
+            exit 0
+          fi
+
+          echo "Users to ensure: ${users_to_ensure[*]}"
+
+          for username in "${users_to_ensure[@]}"; do
+            member_json="$(
+              jq -c --arg username "$username" '
+                .members[]
+                | select(.username == $username)
+              ' "$MEMBERS_FILE"
+            )"
+
+            email="$(jq -r '.email // empty' <<< "$member_json")"
+            desired_role="$(jq -r '.role // empty' <<< "$member_json")"
+            status="$(jq -r '.status // empty' <<< "$member_json")"
+
+            if [ -z "$email" ]; then
+              echo "::warning::Skipping $username: email is missing."
+              continue
+            fi
+
+            if [ -z "$desired_role" ]; then
+              echo "::warning::Skipping $username: role is missing."
+              continue
+            fi
+
+            email_domain="${email##*@}"
+
+            if ! printf '%s\n' "${ALLOWED_DOMAINS[@]}" | grep -Fxq "$email_domain"; then
+              echo "::warning::Skipping $username: email domain '$email_domain' is not allowed."
+              continue
+            fi
+
+            case "$desired_role" in
+              admin)
+                membership_role="admin"
+                invitation_role="admin"
+                ;;
+              direct_member|member)
+                membership_role="member"
+                invitation_role="direct_member"
+                ;;
+              *)
+                echo "::warning::Skipping $username: unsupported desired role '$desired_role'."
+                continue
+                ;;
+            esac
+
+            echo "Processing $username"
+            echo "  status:          $status"
+            echo "  email:           $email"
+            echo "  desired role:    $desired_role"
+            echo "  membership role: $membership_role"
+
+            membership_file="$(mktemp)"
+            membership_error_file="$(mktemp)"
+
+            if gh api "/orgs/$ORG/memberships/$username" > "$membership_file" 2> "$membership_error_file"; then
+              current_state="$(jq -r '.state // empty' "$membership_file")"
+              current_role="$(jq -r '.role // empty' "$membership_file")"
+
+              echo "$username current membership:"
+              echo "  state: $current_state"
+              echo "  role:  $current_role"
+
+              if grep -Fxq "$username" "$ACTIVE_JIT_ADMINS_FILE"; then
+                echo "$username has an active JIT org-admin request."
+
+                if [ "$current_role" = "admin" ]; then
+                  echo "Skipping role correction so temporary org-admin access is preserved."
+                  rm -f "$membership_file" "$membership_error_file"
+                  continue
+                fi
+
+                echo "::warning::$username has an active JIT request but current role is '$current_role', not 'admin'. Leaving unchanged."
+                rm -f "$membership_file" "$membership_error_file"
+                continue
+              fi
+
+              if [ "$current_role" != "$membership_role" ]; then
+                if [ "$WHAT_IF" = "true" ]; then
+                  echo "WHAT_IF: would update $username role from '$current_role' to '$membership_role'."
+                else
+                  gh api \
+                    --method PUT \
+                    "/orgs/$ORG/memberships/$username" \
+                    --field role="$membership_role" \
+                    --silent
+
+                  echo "Updated $username role from '$current_role' to '$membership_role'."
+                fi
+              else
+                echo "$username already has the correct role."
+              fi
+            else
+              echo "$username does not currently have an organization membership."
+
+              if grep -Fxq "$username" "$ACTIVE_JIT_ADMINS_FILE"; then
+                echo "::warning::$username has an active JIT org-admin request, but no membership was found. Skipping invite/role change."
+                rm -f "$membership_file" "$membership_error_file"
+                continue
+              fi
+
+              if [ "$WHAT_IF" = "true" ]; then
+                echo "WHAT_IF: would invite $username using email '$email' with role '$invitation_role'."
+              else
+                gh api \
+                  --method POST \
+                  "/orgs/$ORG/invitations" \
+                  --field email="$email" \
+                  --field role="$invitation_role" \
+                  --silent
+
+                echo "Invitation sent to $username using email '$email' with role '$invitation_role'."
+              fi
+            fi
+
+            rm -f "$membership_file" "$membership_error_file"
+          done
+
+      - name: Remove inactive organization memberships
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ORG="${{ github.repository_owner }}"
+          MEMBERS_FILE="org-membership/members.json"
+          ACTIVE_JIT_ADMINS_FILE="${{ steps.active_jit.outputs.active_jit_admins_file }}"
+
+          if [ "$WHAT_IF" = "true" ]; then
+            echo "WHAT_IF mode is enabled."
+            echo "Inactive users will be evaluated, but not removed."
+          fi
+
+          mapfile -t inactive_users < <(
+            jq -r '
+              .members[]
+              | select(.status == "inactive")
+              | .username
+            ' "$MEMBERS_FILE"
+          )
+
+          if [ "${#inactive_users[@]}" -eq 0 ]; then
+            echo "No inactive users found."
+            exit 0
+          fi
+
+          echo "Inactive users to remove or cancel invitation for: ${inactive_users[*]}"
+
+          for username in "${inactive_users[@]}"; do
+            echo "Evaluating inactive user: $username"
+
+            if grep -Fxq "$username" "$ACTIVE_JIT_ADMINS_FILE"; then
+              echo "Skipping removal for $username because they have an active JIT org-admin request."
+              continue
+            fi
+
+            membership_file="$(mktemp)"
+            membership_error_file="$(mktemp)"
+
+            if gh api "/orgs/$ORG/memberships/$username" > "$membership_file" 2> "$membership_error_file"; then
+              current_state="$(jq -r '.state // empty' "$membership_file")"
+              current_role="$(jq -r '.role // empty' "$membership_file")"
+
+              echo "$username currently has org membership:"
+              echo "  state: $current_state"
+              echo "  role:  $current_role"
+
+              if [ "$WHAT_IF" = "true" ]; then
+                echo "WHAT_IF: would remove organization membership or cancel pending invitation for $username."
+              else
+                gh api \
+                  --method DELETE \
+                  "/orgs/$ORG/memberships/$username" \
+                  --silent
+
+                echo "Removed organization membership or cancelled pending invitation for $username."
+              fi
+            else
+              echo "$username does not appear to have an organization membership or pending invitation."
+            fi
+
+            rm -f "$membership_file" "$membership_error_file"
+          done
+
+      - name: Remove unlisted organization members reconciliation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ORG="${{ github.repository_owner }}"
+          MEMBERS_FILE="org-membership/members.json"
+          ACTIVE_JIT_ADMINS_FILE="${{ steps.active_jit.outputs.active_jit_admins_file }}"
+
+          if [ "$WHAT_IF" = "true" ]; then
+            echo "WHAT_IF mode is enabled."
+            echo "Unlisted users will be evaluated, but not removed."
+          fi
+
+          jq -r '.members[].username' "$MEMBERS_FILE" | tr '[:upper:]' '[:lower:]' | sort -u > known_users.txt
+
+          gh api --paginate "/orgs/$ORG/members" -q '.[].login' | tr '[:upper:]' '[:lower:]' | sort -u > current_github_members.txt
+
+          comm -23 current_github_members.txt known_users.txt > unlisted_members.txt
+
+          if [ ! -s unlisted_members.txt ]; then
+            echo "No unlisted members found. Organization perfectly matches members.json."
+            exit 0
+          fi
+
+          echo "Found the following users in GitHub who are completely missing from members.json:"
+          cat unlisted_members.txt
+
+          while IFS= read -r username; do
+            [ -z "$username" ] && continue
+
+            if grep -Fxqi "$username" "$ACTIVE_JIT_ADMINS_FILE"; then
+              echo "Skipping removal for $username because they have an active JIT org-admin request."
+              continue
+            fi
+
+            if [ "$WHAT_IF" = "true" ]; then
+              echo "WHAT_IF: would remove unlisted member '$username' from the organization."
+            else
+              gh api \
+                --method DELETE \
+                "/orgs/$ORG/memberships/$username" \
+                --silent
+
+              echo "Removed '$username' from the organization (not found in members.json)."
+            fi
+          done < unlisted_members.txt

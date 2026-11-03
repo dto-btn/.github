@@ -1,0 +1,26 @@
+{
+  "name": "aips-cluster-write",
+  "description": "Code Contributors to the aips-cluster repo",
+  "privacy": "closed",
+  "notification_setting": "notifications_enabled",
+  "members": [
+    {
+      "username": "KingBain",
+      "role": "member"
+    },
+    {
+      "username": "bigyam",
+      "role": "member"
+    },
+    {
+      "username": "jeneerthan",
+      "role": "member"
+    }
+  ],
+  "repositories": [
+    {
+      "name": "aips-cluster",
+      "permissions": "push"
+    }
+  ]
+}
