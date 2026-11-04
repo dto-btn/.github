@@ -29,8 +29,8 @@ jobs:
         id: read_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          client-id: ${{ vars.ORG_ACTIVITY_READER_ID }}
-          private-key: ${{ secrets.ORG_ACTIVITY_READER_KEY }}
+          client-id: ${{ vars.ORG_ACTIVITY_LASTSEEN_ID }}
+          private-key: ${{ secrets.ORG_ACTIVITY_LASTSEEN_KEY }}
           owner: ${{ github.repository_owner }} # zizmor: ignore[github-app] Organization-wide metadata access is required to scan repository events.
           permission-metadata: read
 
@@ -166,8 +166,8 @@ jobs:
         id: write_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          client-id: ${{ vars.ORG_MEMBER_READER_ID }}
-          private-key: ${{ secrets.ORG_MEMBER_READER_KEY }}
+          client-id: ${{ vars.ORG_ACTIVITY_LASTSEEN_ID }}
+          private-key: ${{ secrets.ORG_ACTIVITY_LASTSEEN_KEY }}
           permission-contents: write
 
       - name: Commit and push updated JSON
