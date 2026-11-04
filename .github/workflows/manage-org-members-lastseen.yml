@@ -1,15 +1,10 @@
+
 name: Update Member Public Activity
 
 on:
   schedule:
     - cron: "0 1 * * *" # daily at 01:00 UTC
   workflow_dispatch:
-    inputs:
-      what_if:
-        description: "Run without changing org-membership/members.json"
-        type: boolean
-        required: false
-        default: true
 
 permissions:
   contents: write
@@ -18,13 +13,9 @@ concurrency:
   group: org-membership-state
   cancel-in-progress: false
 
-  
 jobs:
   update-public-activity:
     runs-on: ubuntu-latest
-
-    env:
-      WHAT_IF: ${{ inputs.what_if || false }}
 
     steps:
       - name: Create App token
@@ -52,17 +43,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          ORG="ssc-sp"
+          ORG="${{ github.repository_owner }}"
           MEMBERS_FILE="org-membership/members.json"
           API_EVENT_WINDOW_DAYS=30
-
-          if [ "$WHAT_IF" = "true" ]; then
-            echo "WHAT_IF mode is enabled."
-            echo "The workflow will check activity and produce a diff, but will not modify $MEMBERS_FILE."
-          else
-            echo "WHAT_IF mode is disabled."
-            echo "The workflow may update and commit $MEMBERS_FILE."
-          fi
 
           cutoff="$(date -u -d "$API_EVENT_WINDOW_DAYS days ago" +"%Y-%m-%dT%H:%M:%SZ")"
 
@@ -74,21 +57,12 @@ jobs:
             exit 1
           fi
 
-          # In what-if mode, update a temp copy so we can show the proposed diff
-          # without changing the real membership file.
-          if [ "$WHAT_IF" = "true" ]; then
-            WORKING_MEMBERS_FILE="$(mktemp)"
-            cp "$MEMBERS_FILE" "$WORKING_MEMBERS_FILE"
-          else
-            WORKING_MEMBERS_FILE="$MEMBERS_FILE"
-          fi
-
           mapfile -t usernames < <(
             jq -r '
               .members[]
               | select(.status != "nonremovable")
               | .username
-            ' "$WORKING_MEMBERS_FILE"
+            ' "$MEMBERS_FILE"
           )
 
           if [ "${#usernames[@]}" -eq 0 ]; then
@@ -146,7 +120,7 @@ jobs:
             current_activity_at="$(
               jq -r --arg username "$username" '
                 (.members[] | select(.username == $username)).last_public_activity_at // ""
-              ' "$WORKING_MEMBERS_FILE"
+              ' "$MEMBERS_FILE"
             )"
 
             echo "Latest public org activity found for $username:"
@@ -157,10 +131,6 @@ jobs:
             if [ "$current_activity_at" = "$latest_activity_at" ]; then
               echo "Stored activity is already current for $username."
               continue
-            fi
-
-            if [ "$WHAT_IF" = "true" ]; then
-              echo "WHAT_IF: would update $username from '${current_activity_at:-null}' to '$latest_activity_at'."
             fi
 
             tmp_file="$(mktemp)"
@@ -176,24 +146,12 @@ jobs:
                 (.members[] | select(.username == $username)).last_public_activity_event = $latest_activity_event
                 |
                 (.members[] | select(.username == $username)).last_public_activity_repo = $latest_activity_repo
-              ' "$WORKING_MEMBERS_FILE" > "$tmp_file"
+              ' "$MEMBERS_FILE" > "$tmp_file"
 
-            mv "$tmp_file" "$WORKING_MEMBERS_FILE"
+            mv "$tmp_file" "$MEMBERS_FILE"
           done
 
-          if [ "$WHAT_IF" = "true" ]; then
-            echo "WHAT_IF: proposed changes:"
-            if diff -u "$MEMBERS_FILE" "$WORKING_MEMBERS_FILE"; then
-              echo "WHAT_IF: no changes would be made."
-            else
-              echo "WHAT_IF: diff shown above. No files were changed."
-            fi
-
-            rm -f "$WORKING_MEMBERS_FILE"
-          fi
-
       - name: Commit and push updated JSON
-        if: ${{ inputs.what_if != true }}
         shell: bash
         run: |
           set -euo pipefail
