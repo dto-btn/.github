@@ -5,8 +5,7 @@ on:
     - cron: "0 1 * * *" # daily at 01:00 UTC
   workflow_dispatch:
 
-permissions:
-  contents: write
+permissions: {}
 
 concurrency:
   group: org-membership-state
@@ -24,6 +23,8 @@ jobs:
           client-id: ${{ vars.ORG_MEMBER_TEAM_ADMIN_ID }}
           private-key: ${{ secrets.ORG_MEMBER_TEAM_ADMIN_KEY }}
           owner: ${{ github.repository_owner }}
+          permission-metadata: read
+          permission-contents: write
 
       - name: Set up GitHub CLI
         shell: bash
@@ -34,6 +35,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          persist-credentials: false
           token: ${{ steps.create_token.outputs.token }}
 
       - name: Update member organization activity
