@@ -14,6 +14,7 @@ concurrency:
 jobs:
   collect-org-activity:
     runs-on: ubuntu-latest
+    environment: org-membership-state
 
     permissions:
       contents: read
