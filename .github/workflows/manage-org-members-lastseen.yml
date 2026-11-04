@@ -110,6 +110,7 @@ jobs:
   update-org-activity:
     needs: collect-org-activity
     runs-on: ubuntu-latest
+    environment: org-membership-state
 
     permissions:
       contents: read
