@@ -4,17 +4,12 @@ on:
   schedule:
     - cron: "0 0 * * *" # Runs daily at 00:00 UTC
   workflow_dispatch:
-    inputs:
-      what_if:
-        description: "Run without changing organization membership"
-        type: boolean
-        required: false
-        default: true
   push:
     branches:
       - main
     paths:
       - "org-membership/members.json"
+      - ".github/workflows/manage-org-members.yml"
 
 concurrency:
   group: org-membership-state
@@ -25,9 +20,6 @@ permissions: read-all
 jobs:
   manage-members:
     runs-on: ubuntu-latest
-
-    env:
-      WHAT_IF: ${{ github.event_name == 'workflow_dispatch' && inputs.what_if == true }}
 
     steps:
       - name: Create App token
@@ -137,11 +129,6 @@ jobs:
           ACTIVE_JIT_ADMINS_FILE="${{ steps.active_jit.outputs.active_jit_admins_file }}"
           ALLOWED_DOMAINS=("ssc-spc.gc.ca" "ssc.gc.ca")
 
-          if [ "$WHAT_IF" = "true" ]; then
-            echo "WHAT_IF mode is enabled."
-            echo "Active/nonremovable users will be evaluated, but not invited or role-updated."
-          fi
-
           if [ ! -f "$MEMBERS_FILE" ]; then
             echo "::error::Members file not found: $MEMBERS_FILE"
             exit 1
@@ -238,17 +225,13 @@ jobs:
               fi
 
               if [ "$current_role" != "$membership_role" ]; then
-                if [ "$WHAT_IF" = "true" ]; then
-                  echo "WHAT_IF: would update $username role from '$current_role' to '$membership_role'."
-                else
-                  gh api \
-                    --method PUT \
-                    "/orgs/$ORG/memberships/$username" \
-                    --field role="$membership_role" \
-                    --silent
+                gh api \
+                  --method PUT \
+                  "/orgs/$ORG/memberships/$username" \
+                  --field role="$membership_role" \
+                  --silent
 
-                  echo "Updated $username role from '$current_role' to '$membership_role'."
-                fi
+                echo "Updated $username role from '$current_role' to '$membership_role'."
               else
                 echo "$username already has the correct role."
               fi
@@ -261,18 +244,14 @@ jobs:
                 continue
               fi
 
-              if [ "$WHAT_IF" = "true" ]; then
-                echo "WHAT_IF: would invite $username using email '$email' with role '$invitation_role'."
-              else
-                gh api \
-                  --method POST \
-                  "/orgs/$ORG/invitations" \
-                  --field email="$email" \
-                  --field role="$invitation_role" \
-                  --silent
+              gh api \
+                --method POST \
+                "/orgs/$ORG/invitations" \
+                --field email="$email" \
+                --field role="$invitation_role" \
+                --silent
 
-                echo "Invitation sent to $username using email '$email' with role '$invitation_role'."
-              fi
+              echo "Invitation sent to $username using email '$email' with role '$invitation_role'."
             fi
 
             rm -f "$membership_file" "$membership_error_file"
@@ -286,11 +265,6 @@ jobs:
           ORG="${{ github.repository_owner }}"
           MEMBERS_FILE="org-membership/members.json"
           ACTIVE_JIT_ADMINS_FILE="${{ steps.active_jit.outputs.active_jit_admins_file }}"
-
-          if [ "$WHAT_IF" = "true" ]; then
-            echo "WHAT_IF mode is enabled."
-            echo "Inactive users will be evaluated, but not removed."
-          fi
 
           mapfile -t inactive_users < <(
             jq -r '
@@ -326,16 +300,12 @@ jobs:
               echo "  state: $current_state"
               echo "  role:  $current_role"
 
-              if [ "$WHAT_IF" = "true" ]; then
-                echo "WHAT_IF: would remove organization membership or cancel pending invitation for $username."
-              else
-                gh api \
-                  --method DELETE \
-                  "/orgs/$ORG/memberships/$username" \
-                  --silent
+              gh api \
+                --method DELETE \
+                "/orgs/$ORG/memberships/$username" \
+                --silent
 
-                echo "Removed organization membership or cancelled pending invitation for $username."
-              fi
+              echo "Removed organization membership or cancelled pending invitation for $username."
             else
               echo "$username does not appear to have an organization membership or pending invitation."
             fi
@@ -351,11 +321,6 @@ jobs:
           ORG="${{ github.repository_owner }}"
           MEMBERS_FILE="org-membership/members.json"
           ACTIVE_JIT_ADMINS_FILE="${{ steps.active_jit.outputs.active_jit_admins_file }}"
-
-          if [ "$WHAT_IF" = "true" ]; then
-            echo "WHAT_IF mode is enabled."
-            echo "Unlisted users will be evaluated, but not removed."
-          fi
 
           jq -r '.members[].username' "$MEMBERS_FILE" | tr '[:upper:]' '[:lower:]' | sort -u > known_users.txt
 
@@ -379,14 +344,10 @@ jobs:
               continue
             fi
 
-            if [ "$WHAT_IF" = "true" ]; then
-              echo "WHAT_IF: would remove unlisted member '$username' from the organization."
-            else
-              gh api \
-                --method DELETE \
-                "/orgs/$ORG/memberships/$username" \
-                --silent
+            gh api \
+              --method DELETE \
+              "/orgs/$ORG/memberships/$username" \
+              --silent
 
-              echo "Removed '$username' from the organization (not found in members.json)."
-            fi
+            echo "Removed '$username' from the organization (not found in members.json)."
           done < unlisted_members.txt
