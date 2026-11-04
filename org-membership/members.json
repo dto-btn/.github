@@ -5,18 +5,18 @@
       "email": "andrew.ruan@ssc-spc.gc.ca",
       "role": "direct_member",
       "status": "active",
-      "last_org_activity_at": null,
-      "last_org_activity_event": null,
-      "last_org_activity_repo": null
+      "last_org_activity_at": "2026-10-26T19:04:22Z",
+      "last_org_activity_event": "PushEvent",
+      "last_org_activity_repo": "dto-btn/canchat-v2"
     },
     {
       "username": "Cody-SSC",
       "email": "Cody.Robillard@ssc-spc.gc.ca",
       "role": "direct_member",
       "status": "active",
-      "last_org_activity_at": null,
-      "last_org_activity_event": null,
-      "last_org_activity_repo": null
+      "last_org_activity_at": "2026-11-04T13:22:15Z",
+      "last_org_activity_event": "PullRequestEvent",
+      "last_org_activity_repo": "dto-btn/canchat-v2"
     },
     {
       "username": "davidsimard2",
@@ -32,18 +32,18 @@
       "email": "guillaume.turcotte2@ssc-spc.gc.ca",
       "role": "direct_member",
       "status": "active",
-      "last_org_activity_at": null,
-      "last_org_activity_event": null,
-      "last_org_activity_repo": null
+      "last_org_activity_at": "2026-11-04T18:40:10Z",
+      "last_org_activity_event": "PullRequestReviewEvent",
+      "last_org_activity_repo": "dto-btn/.github"
     },
     {
       "username": "jeneerthan",
       "email": "jeneerthan.pageerathan@ssc-spc.gc.ca",
       "role": "direct_member",
       "status": "active",
-      "last_org_activity_at": null,
-      "last_org_activity_event": null,
-      "last_org_activity_repo": null
+      "last_org_activity_at": "2026-11-03T19:18:33Z",
+      "last_org_activity_event": "PullRequestEvent",
+      "last_org_activity_repo": "dto-btn/canchat-v2"
     },
     {
       "username": "jpfromssc",
@@ -68,9 +68,9 @@
       "email": "john.bain@ssc-spc.gc.ca",
       "role": "direct_member",
       "status": "active",
-      "last_org_activity_at": null,
-      "last_org_activity_event": null,
-      "last_org_activity_repo": null
+      "last_org_activity_at": "2026-11-04T18:48:09Z",
+      "last_org_activity_event": "PullRequestEvent",
+      "last_org_activity_repo": "dto-btn/.github"
     },
     {
       "username": "LaurenHong04",
@@ -104,18 +104,18 @@
       "email": "MichaelChidera.Agonsi@ssc-spc.gc.ca",
       "role": "direct_member",
       "status": "active",
-      "last_org_activity_at": null,
-      "last_org_activity_event": null,
-      "last_org_activity_repo": null
+      "last_org_activity_at": "2026-11-03T20:42:28Z",
+      "last_org_activity_event": "PushEvent",
+      "last_org_activity_repo": "dto-btn/canchat-v2"
     },
     {
       "username": "NolanIsaacSmith",
       "email": "Nolan.Isaac-Smith@ssc-spc.gc.ca",
       "role": "direct_member",
       "status": "active",
-      "last_org_activity_at": null,
-      "last_org_activity_event": null,
-      "last_org_activity_repo": null
+      "last_org_activity_at": "2026-11-03T15:12:04Z",
+      "last_org_activity_event": "PullRequestEvent",
+      "last_org_activity_repo": "dto-btn/canchat-v2"
     },
     {
       "username": "pascal-beaulne",
@@ -131,18 +131,18 @@
       "email": "Sumandeep.Kaur@ssc-spc.gc.ca",
       "role": "direct_member",
       "status": "active",
-      "last_org_activity_at": null,
-      "last_org_activity_event": null,
-      "last_org_activity_repo": null
+      "last_org_activity_at": "2026-10-21T18:38:59Z",
+      "last_org_activity_event": "IssuesEvent",
+      "last_org_activity_repo": "dto-btn/ssc-assistant"
     },
     {
       "username": "vujissc",
       "email": "Sasha.Vujisic@ssc-spc.gc.ca",
       "role": "direct_member",
       "status": "active",
-      "last_org_activity_at": null,
-      "last_org_activity_event": null,
-      "last_org_activity_repo": null
+      "last_org_activity_at": "2026-11-03T17:14:45Z",
+      "last_org_activity_event": "IssueCommentEvent",
+      "last_org_activity_repo": "dto-btn/canchat-v2"
     },
     {
       "username": "YanSSC",
