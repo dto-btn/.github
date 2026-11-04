@@ -9,7 +9,7 @@ permissions: {}
 
 concurrency:
   group: org-membership-state
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   collect-org-activity:
