@@ -30,7 +30,7 @@ jobs:
         with:
           client-id: ${{ vars.ORG_ACTIVITY_READER_ID }}
           private-key: ${{ secrets.ORG_ACTIVITY_READER_KEY }}
-          owner: ${{ github.repository_owner }}
+          owner: ${{ github.repository_owner }} # zizmor: ignore[github-app] Organization-wide metadata access is required to scan repository events.
           permission-metadata: read
 
       - name: Collect organization activity
@@ -172,6 +172,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.write_token.outputs.token }}
           APP_SLUG: ${{ steps.write_token.outputs.app-slug }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         shell: bash
         run: |
           set -euo pipefail
@@ -192,4 +193,4 @@ jobs:
 
           gh auth setup-git --hostname github.com
 
-          git push origin "HEAD:${{ github.event.repository.default_branch }}"
+          git push origin "HEAD:${DEFAULT_BRANCH}"
