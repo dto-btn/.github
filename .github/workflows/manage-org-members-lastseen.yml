@@ -1,8 +1,9 @@
+
 name: Update Member Organization Activity
 
 on:
   schedule:
-    - cron: "0 1 * * *" # daily at 01:00 UTC
+    - cron: "0 1 * * *"
   workflow_dispatch:
 
 permissions: {}
@@ -12,33 +13,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  update-org-activity:
+  collect-org-activity:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+
     steps:
-      - name: Create App token
-        id: create_token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          client-id: ${{ vars.ORG_MEMBER_TEAM_ADMIN_ID }}
-          private-key: ${{ secrets.ORG_MEMBER_TEAM_ADMIN_KEY }}
-          owner: ${{ github.repository_owner }}
-          permission-metadata: read
-          permission-contents: write
-
-      - name: Set up GitHub CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh auth login --with-token <<< "${{ steps.create_token.outputs.token }}"
-
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-          token: ${{ steps.create_token.outputs.token }}
 
-      - name: Update member organization activity
+      - name: Create metadata reader token
+        id: read_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.ORG_ACTIVITY_READER_ID }}
+          private-key: ${{ secrets.ORG_ACTIVITY_READER_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-metadata: read
+
+      - name: Collect organization activity
+        env:
+          GH_TOKEN: ${{ steps.read_token.outputs.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -49,14 +47,8 @@ jobs:
 
           cutoff="$(date -u -d "$API_EVENT_WINDOW_DAYS days ago" +"%Y-%m-%dT%H:%M:%SZ")"
 
-          if [ ! -f "$MEMBERS_FILE" ]; then
-            echo "::error::Members file not found: $MEMBERS_FILE"
-            exit 1
-          fi
-
           jq -e '.members | type == "array"' "$MEMBERS_FILE" > /dev/null
 
-          # List all repositories visible to the GitHub App, including private ones.
           repositories_file="$(mktemp)"
 
           gh api --paginate \
@@ -66,15 +58,13 @@ jobs:
           mapfile -t repositories < "$repositories_file"
 
           if [ "${#repositories[@]}" -eq 0 ]; then
-            echo "::error::No repositories were returned for $ORG. Check app access."
+            echo "::error::No repositories returned."
             exit 1
           fi
 
-          echo "Scanning ${#repositories[@]} repositories in $ORG for activity since $cutoff."
+          echo "Scanning ${#repositories[@]} repositories."
 
-          # JSON Lines: one latest matching event per member per repository.
-          repo_events_file="$(mktemp)"
-          : > "$repo_events_file"
+          : > repo-events.jsonl
 
           for repo in "${repositories[@]}"; do
             echo "Checking $repo"
@@ -103,17 +93,47 @@ jobs:
                   | group_by(.username)
                   | map(max_by(.created_at))
                   | .[]
-                ' >> "$repo_events_file"; then
-              echo "::error::Failed to retrieve or process events for $repo."
+                ' >> repo-events.jsonl; then
+              echo "::error::Failed to process events for $repo."
               exit 1
             fi
           done
 
-          # Choose the newest event across all repositories for each member.
-          # Keep stored timestamps when the discovered event is older or absent.
+      - name: Upload activity results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: org-activity
+          path: repo-events.jsonl
+          if-no-files-found: error
+          retention-days: 1
+
+  update-org-activity:
+    needs: collect-org-activity
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Download activity results
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: org-activity
+
+      - name: Update members.json
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MEMBERS_FILE="org-membership/members.json"
           updated_file="$(mktemp)"
 
-          jq --slurpfile events "$repo_events_file" '
+          jq --slurpfile events repo-events.jsonl '
             ($events
               | group_by(.username)
               | map(max_by(.created_at))
@@ -135,25 +155,42 @@ jobs:
           ' "$MEMBERS_FILE" > "$updated_file"
 
           if cmp -s "$MEMBERS_FILE" "$updated_file"; then
-            echo "No newer activity found; members.json is unchanged."
+            echo "No newer activity found."
           else
             mv "$updated_file" "$MEMBERS_FILE"
-            echo "Updated $MEMBERS_FILE with the latest organization activity."
+            echo "Updated $MEMBERS_FILE."
           fi
 
+      - name: Create repository writer token
+        id: write_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.ORG_MEMBER_WRITER_ID }}
+          private-key: ${{ secrets.ORG_MEMBER_WRITER_KEY }}
+          permission-contents: write
+
       - name: Commit and push updated JSON
+        env:
+          GH_TOKEN: ${{ steps.write_token.outputs.token }}
+          APP_SLUG: ${{ steps.write_token.outputs.app-slug }}
         shell: bash
         run: |
           set -euo pipefail
-
-          git config user.name "Org Event Watcher App"
-          git config user.email "${{ vars.ORG_MEMBER_TEAM_ADMIN_ID }}[bot]@users.noreply.github.com"
 
           git add org-membership/members.json
 
           if git diff --cached --quiet; then
             echo "No organization activity updates to commit."
-          else
-            git commit -m "Automated: update member organization activity"
-            git push
+            exit 0
           fi
+
+          bot_id="$(gh api "/users/${APP_SLUG}[bot]" --jq .id)"
+
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${bot_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+
+          git commit -m "Automated: update member organization activity"
+
+          gh auth setup-git --hostname github.com
+
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"
