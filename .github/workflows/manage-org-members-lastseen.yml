@@ -166,8 +166,8 @@ jobs:
         id: write_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          client-id: ${{ vars.ORG_MEMBER_WRITER_ID }}
-          private-key: ${{ secrets.ORG_MEMBER_WRITER_KEY }}
+          client-id: ${{ vars.ORG_MEMBER_READER_ID }}
+          private-key: ${{ secrets.ORG_MEMBER_READER_KEY }}
           permission-contents: write
 
       - name: Commit and push updated JSON
