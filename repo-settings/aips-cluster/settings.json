@@ -3,7 +3,7 @@
   "auto_init": true,
   "private": true,
   "visibility": "private",
-  "description": "Change me",
+  "description": "This repo contains all the platform and instance Manifests to maintain via GitOps the AIPS Cluster.",
   "fork": false,
   "homepage": "",
   "has_issues": true,
