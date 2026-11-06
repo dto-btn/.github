@@ -50,9 +50,7 @@ jobs:
 
           find repo-rulesets -type f -name '*.json' | sort |
             while IFS= read -r file; do
-              repo="${file#repo-rulesets/}"
-              repo="${repo%%/*}"
-
+              repo=$(jq -er '.repository' "$file")
               echo "$repo,$file"
             done >> "$configs"
 
@@ -120,7 +118,7 @@ jobs:
 
               echo "Creating ruleset: $repo / $name"
 
-              jq 'del(.source_type)' "$file" |
+              jq 'del(.repository, .source_type)' "$file" |
                 gh api --method POST \
                   "repos/${GITHUB_REPOSITORY_OWNER}/${repo}/rulesets" \
                   --input - --silent
@@ -159,7 +157,7 @@ jobs:
 
               echo "Creating replacement ruleset: $repo / $name"
 
-              jq 'del(.source_type)' "$file" |
+              jq 'del(.repository, .source_type)' "$file" |
                 gh api --method POST \
                   "repos/${GITHUB_REPOSITORY_OWNER}/${repo}/rulesets" \
                   --input - --silent
